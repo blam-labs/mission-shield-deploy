@@ -4,7 +4,7 @@ Deploy Mission Shield into an Azure subscription owned and operated by your orga
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fblam-labs%2Fmission-shield-deploy%2Fmain%2Fazure%2Fmain.json)
 
-> **Private pilot:** Mission Shield `0.2.0-rc.8` is a prerelease intended for a limited, customer-owned pilot. Use fictional or non-sensitive information until your organization completes its own security, privacy, backup, and recovery review.
+> **Private release — not general availability:** Mission Shield `0.2.0-rc.8` is intended only for approved, customer-owned evaluation environments. Use fictional or non-sensitive information until your organization completes its own security, privacy, backup, and recovery review.
 
 ## Before you deploy
 

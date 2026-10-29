@@ -1,6 +1,6 @@
 # Security policy
 
-Mission Shield `0.2.0-rc.8` is a prerelease for limited customer-owned pilots. It is not a general-availability release.
+Mission Shield `0.2.0-rc.8` is a private release for approved customer-owned evaluations. It is not a general-availability release.
 
 Report suspected vulnerabilities privately through GitHub private vulnerability reporting for the Mission Shield deployment repository when available. Do not include organization records, databases, backups, exports, credentials, tokens, invitation links, environment files, or other third-party information.
 
