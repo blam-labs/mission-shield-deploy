@@ -1,0 +1,569 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.48.1.52935",
+      "templateHash": "10608529836980981940"
+    }
+  },
+  "parameters": {
+    "prefix": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 18,
+      "metadata": {
+        "description": "Short lowercase prefix used in customer-owned Azure resource names."
+      }
+    },
+    "deploymentDisplayName": {
+      "type": "string",
+      "defaultValue": "Mission Shield Evaluation",
+      "minLength": 3,
+      "maxLength": 64,
+      "metadata": {
+        "description": "Customer-facing name recorded on the Azure resource group and resources."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for every resource in this evaluation deployment."
+      }
+    },
+    "oidcProviderName": {
+      "type": "string",
+      "allowedValues": [
+        "entra",
+        "okta",
+        "oidc"
+      ],
+      "metadata": {
+        "description": "Identity provider used by this Mission Shield installation."
+      }
+    },
+    "oidcIssuerUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Exact HTTPS OIDC issuer. Entra must use one tenant ID, not common or organizations."
+      }
+    },
+    "oidcClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "OIDC application client ID."
+      }
+    },
+    "oidcClientSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "OIDC application client secret."
+      }
+    },
+    "oidcTransactionSecret": {
+      "type": "securestring",
+      "minLength": 32,
+      "metadata": {
+        "description": "Random secret used only for short-lived OIDC transaction state."
+      }
+    },
+    "initialOrganizationName": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 160,
+      "metadata": {
+        "description": "Organization name used to create the first private workspace."
+      }
+    },
+    "initialOwnerEmail": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 254,
+      "metadata": {
+        "description": "Email address of the first Workspace Owner."
+      }
+    },
+    "initialOwnerDirectoryObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 200,
+      "metadata": {
+        "description": "Microsoft Entra User Object ID for the first owner. Required for Entra deployments."
+      }
+    },
+    "databaseAdministratorPassword": {
+      "type": "securestring",
+      "minLength": 20,
+      "metadata": {
+        "description": "Password for the customer-owned PostgreSQL administrator."
+      }
+    },
+    "databaseSkuName": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "allowedValues": [
+        "Standard_B1ms",
+        "Standard_B2s"
+      ],
+      "metadata": {
+        "description": "PostgreSQL burstable compute size. B2s is the compatibility default; use B1ms only where Azure confirms it is available."
+      }
+    },
+    "databaseBackupRetentionDays": {
+      "type": "int",
+      "defaultValue": 7,
+      "minValue": 7,
+      "maxValue": 35,
+      "metadata": {
+        "description": "Days Azure retains PostgreSQL backups. Use 7 for a short evaluation and 14 to 35 for an ongoing workspace."
+      }
+    },
+    "operationsContactEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 254,
+      "metadata": {
+        "description": "Role-managed email address for Azure database storage alerts. Leave blank to skip email alerts during a short evaluation."
+      }
+    },
+    "apiContainerImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/blam-labs/blamcore-mission-shield-api@sha256:06aa29d80e2166b31a2f27b88d2a419b734e623c25ce644b50518a007f68d7f2",
+      "metadata": {
+        "description": "Published Mission Shield API container image pinned to the accepted release digest."
+      }
+    },
+    "webContainerImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/blam-labs/blamcore-mission-shield-web@sha256:1ab546d2d955a7379a7c707d03d22ba642309ff2cce1a3eef43611f2bf5687a0",
+      "metadata": {
+        "description": "Published Mission Shield web container image pinned to the accepted release digest."
+      }
+    },
+    "containerEnvironmentName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-evaluation-environment', parameters('prefix'))]",
+      "metadata": {
+        "description": "Azure Container Apps environment resource name."
+      }
+    },
+    "webAppName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-web', parameters('prefix'))]",
+      "metadata": {
+        "description": "Mission Shield web container app resource name."
+      }
+    },
+    "apiAppName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-api', parameters('prefix'))]",
+      "metadata": {
+        "description": "Mission Shield API container app resource name."
+      }
+    },
+    "databaseName": {
+      "type": "string",
+      "defaultValue": "[take(format('{0}-db-{1}', parameters('prefix'), uniqueString(resourceGroup().id)), 63)]",
+      "metadata": {
+        "description": "Globally unique PostgreSQL Flexible Server resource name."
+      }
+    }
+  },
+  "variables": {
+    "resourceTags": {
+      "application": "Mission Shield",
+      "deploymentName": "[parameters('deploymentDisplayName')]",
+      "deploymentType": "evaluation",
+      "customerOwned": "true"
+    },
+    "databaseUrl": "[format('postgresql://missionshield:{0}@{1}.postgres.database.azure.com:5432/mission_shield?sslmode=require', uriComponent(parameters('databaseAdministratorPassword')), parameters('databaseName'))]",
+    "emailAlertsEnabled": "[not(empty(parameters('operationsContactEmail')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('containerEnvironmentName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('resourceTags')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "azure-monitor"
+        },
+        "zoneRedundant": false
+      }
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "apiVersion": "2024-08-01",
+      "name": "[parameters('databaseName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('resourceTags')]",
+      "sku": {
+        "name": "[parameters('databaseSkuName')]",
+        "tier": "Burstable"
+      },
+      "properties": {
+        "administratorLogin": "missionshield",
+        "administratorLoginPassword": "[parameters('databaseAdministratorPassword')]",
+        "version": "16",
+        "createMode": "Create",
+        "backup": {
+          "backupRetentionDays": "[parameters('databaseBackupRetentionDays')]",
+          "geoRedundantBackup": "Disabled"
+        },
+        "highAvailability": {
+          "mode": "Disabled"
+        },
+        "storage": {
+          "storageSizeGB": 32,
+          "autoGrow": "Enabled"
+        },
+        "network": {
+          "publicNetworkAccess": "Enabled"
+        },
+        "authConfig": {
+          "activeDirectoryAuth": "Disabled",
+          "passwordAuth": "Enabled"
+        }
+      }
+    },
+    {
+      "condition": "[variables('emailAlertsEnabled')]",
+      "type": "Microsoft.Insights/actionGroups",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-operations', parameters('prefix'))]",
+      "location": "Global",
+      "tags": "[variables('resourceTags')]",
+      "properties": {
+        "groupShortName": "[take(format('{0}ops', parameters('prefix')), 12)]",
+        "enabled": true,
+        "emailReceivers": [
+          {
+            "name": "Mission Shield operations",
+            "emailAddress": "[parameters('operationsContactEmail')]",
+            "useCommonAlertSchema": true
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[variables('emailAlertsEnabled')]",
+      "type": "Microsoft.Insights/metricAlerts",
+      "apiVersion": "2018-03-01",
+      "name": "[format('{0}-database-storage-warning', parameters('prefix'))]",
+      "location": "global",
+      "tags": "[variables('resourceTags')]",
+      "properties": {
+        "description": "Mission Shield PostgreSQL storage is above 70 percent. Review capacity before the workspace is affected.",
+        "severity": 2,
+        "enabled": true,
+        "scopes": [
+          "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', parameters('databaseName'))]"
+        ],
+        "evaluationFrequency": "PT5M",
+        "windowSize": "PT15M",
+        "autoMitigate": true,
+        "targetResourceType": "Microsoft.DBforPostgreSQL/flexibleServers",
+        "targetResourceRegion": "[parameters('location')]",
+        "criteria": {
+          "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+          "allOf": [
+            {
+              "name": "StorageAboveSeventyPercent",
+              "metricName": "storage_percent",
+              "metricNamespace": "Microsoft.DBforPostgreSQL/flexibleServers",
+              "operator": "GreaterThan",
+              "threshold": 70,
+              "timeAggregation": "Average",
+              "criterionType": "StaticThresholdCriterion",
+              "skipMetricValidation": false
+            }
+          ]
+        },
+        "actions": [
+          {
+            "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-operations', parameters('prefix')))]"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', parameters('databaseName'))]",
+        "[resourceId('Microsoft.Insights/actionGroups', format('{0}-operations', parameters('prefix')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', parameters('databaseName'), 'AllowAzureServicesForEvaluation')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', parameters('databaseName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', parameters('databaseName'), 'mission_shield')]",
+      "properties": {},
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', parameters('databaseName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('apiAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('resourceTags')]",
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 8000,
+            "transport": "auto",
+            "allowInsecure": false
+          },
+          "secrets": [
+            {
+              "name": "database-url",
+              "value": "[variables('databaseUrl')]"
+            },
+            {
+              "name": "oidc-client-secret",
+              "value": "[parameters('oidcClientSecret')]"
+            },
+            {
+              "name": "oidc-transaction-secret",
+              "value": "[parameters('oidcTransactionSecret')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "api",
+              "image": "[parameters('apiContainerImage')]",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "API_ENV",
+                  "value": "staging"
+                },
+                {
+                  "name": "AUTH_MODE",
+                  "value": "oidc"
+                },
+                {
+                  "name": "DEMO_MODE_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "PUBLIC_BASE_URL",
+                  "value": "[format('https://{0}.{1}', parameters('webAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+                },
+                {
+                  "name": "API_BASE_URL",
+                  "value": "[format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+                },
+                {
+                  "name": "API_CORS_ORIGINS",
+                  "value": "[format('https://{0}.{1}', parameters('webAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+                },
+                {
+                  "name": "SECURE_COOKIES",
+                  "value": "true"
+                },
+                {
+                  "name": "SESSION_COOKIE_DOMAIN",
+                  "value": "[reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain]"
+                },
+                {
+                  "name": "SECURITY_HEADERS_ENABLED",
+                  "value": "true"
+                },
+                {
+                  "name": "STRUCTURED_REQUEST_LOGGING",
+                  "value": "true"
+                },
+                {
+                  "name": "RATE_LIMITING_ENABLED",
+                  "value": "true"
+                },
+                {
+                  "name": "OIDC_PROVIDER_NAME",
+                  "value": "[parameters('oidcProviderName')]"
+                },
+                {
+                  "name": "OIDC_ISSUER_URL",
+                  "value": "[parameters('oidcIssuerUrl')]"
+                },
+                {
+                  "name": "OIDC_CLIENT_ID",
+                  "value": "[parameters('oidcClientId')]"
+                },
+                {
+                  "name": "OIDC_CLIENT_SECRET",
+                  "secretRef": "oidc-client-secret"
+                },
+                {
+                  "name": "OIDC_TRANSACTION_SECRET",
+                  "secretRef": "oidc-transaction-secret"
+                },
+                {
+                  "name": "OIDC_REDIRECT_URL",
+                  "value": "[format('{0}/v1/auth/callback', format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain))]"
+                },
+                {
+                  "name": "INITIAL_ORGANIZATION_NAME",
+                  "value": "[parameters('initialOrganizationName')]"
+                },
+                {
+                  "name": "INITIAL_OWNER_EMAIL",
+                  "value": "[parameters('initialOwnerEmail')]"
+                },
+                {
+                  "name": "INITIAL_OWNER_DIRECTORY_OBJECT_ID",
+                  "value": "[parameters('initialOwnerDirectoryObjectId')]"
+                },
+                {
+                  "name": "DATABASE_URL",
+                  "secretRef": "database-url"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 0,
+            "maxReplicas": 2,
+            "rules": [
+              {
+                "name": "http-demand",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "25"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/firewallRules', parameters('databaseName'), 'AllowAzureServicesForEvaluation')]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', parameters('databaseName'), 'mission_shield')]",
+        "[resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('webAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('resourceTags')]",
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 3000,
+            "transport": "auto",
+            "allowInsecure": false
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "web",
+              "image": "[parameters('webContainerImage')]",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "API_ENV",
+                  "value": "staging"
+                },
+                {
+                  "name": "API_INTERNAL_BASE_URL",
+                  "value": "[format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+                },
+                {
+                  "name": "NEXT_PUBLIC_API_BASE_URL",
+                  "value": "[format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 0,
+            "maxReplicas": 2,
+            "rules": [
+              {
+                "name": "http-demand",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "25"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "webUrl": {
+      "type": "string",
+      "value": "[format('https://{0}.{1}', parameters('webAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+    },
+    "apiUrl": {
+      "type": "string",
+      "value": "[format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain)]"
+    },
+    "oidcCallbackUrl": {
+      "type": "string",
+      "value": "[format('{0}/v1/auth/callback', format('https://{0}.{1}', parameters('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerEnvironmentName')), '2024-03-01').defaultDomain))]"
+    },
+    "apiAppName": {
+      "type": "string",
+      "value": "[parameters('apiAppName')]"
+    },
+    "webAppName": {
+      "type": "string",
+      "value": "[parameters('webAppName')]"
+    },
+    "databaseServerName": {
+      "type": "string",
+      "value": "[parameters('databaseName')]"
+    },
+    "backupRetentionDays": {
+      "type": "int",
+      "value": "[parameters('databaseBackupRetentionDays')]"
+    },
+    "operationsEmailAlerts": {
+      "type": "string",
+      "value": "[if(variables('emailAlertsEnabled'), 'Enabled for the role-managed operations contact.', 'Not configured. Add an operations contact before an ongoing pilot.')]"
+    },
+    "evaluationWarning": {
+      "type": "string",
+      "value": "Use fictional or non-sensitive test information only. This low-cost profile uses scale-to-zero containers and public Azure service endpoints."
+    }
+  }
+}
